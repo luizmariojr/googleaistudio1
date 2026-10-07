@@ -1,0 +1,6 @@
+{
+  "name": "Bicicletão Logística",
+  "description": "Confirmação de entregas offline com fila de sincronização e comprovante digital.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
