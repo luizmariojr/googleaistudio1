@@ -35,15 +35,48 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Create test signing key
+      - name: Restore fixed signing key
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          keytool -genkeypair -keystore debug.keystore \
-            -storepass android -keypass android \
-            -alias androiddebugkey -dname 'CN=Android Debug,O=Android,C=US' \
-            -keyalg RSA -keysize 2048 -validity 10000
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Secret ausente: $name"
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/debug.keystore"
+          keytool -list -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -alias "$ANDROID_KEY_ALIAS" > /dev/null
 
       - name: Build Debug APK
+        env:
+          KEYSTORE_FILE_PATH: ${{ github.workspace }}/debug.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/debug/*.apk)
+          if [ "${#apks[@]}" -eq 0 ]; then
+            echo '::error::Nenhum APK foi gerado.'
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
+          done
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -51,3 +84,7 @@ jobs:
           name: bicicletao-logistica-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Remove signing key from runner
+        if: always()
+        run: rm -f "$GITHUB_WORKSPACE/debug.keystore"
