@@ -43,6 +43,7 @@ import com.example.ui.ScreenDestination
 import com.example.ui.components.OfflineBanner
 import com.example.ui.components.TopNavBar
 import com.example.ui.screens.AuditDetailScreen
+import com.example.ui.screens.ChangeTemporaryPasswordScreen
 import com.example.ui.screens.DeliveryConfirmScreen
 import com.example.ui.screens.LoginScreen
 import com.example.ui.screens.RomaneioListScreen
@@ -87,6 +88,8 @@ fun DeliveryApp(viewModel: DeliveryViewModel) {
     val loginPassword by viewModel.loginPassword.collectAsStateWithLifecycle()
     val loginError by viewModel.loginError.collectAsStateWithLifecycle()
     val isLoggingIn by viewModel.isLoggingIn.collectAsStateWithLifecycle()
+    val isUpdatingPassword by viewModel.isUpdatingPassword.collectAsStateWithLifecycle()
+    val updatePasswordError by viewModel.updatePasswordError.collectAsStateWithLifecycle()
 
     // Se estiver na tela de login, exibe a LoginScreen completa idêntica ao backoffice oficial
     if (currentScreen == ScreenDestination.LOGIN) {
@@ -101,6 +104,22 @@ fun DeliveryApp(viewModel: DeliveryViewModel) {
             onPasswordChange = { viewModel.onLoginPasswordChanged(it) },
             onSubmit = { viewModel.performLogin() },
             onToggleOffline = { viewModel.toggleOfflineSimulation() }
+        )
+        return
+    }
+
+    // Se for obrigatório trocar a senha temporária, bloqueia e exibe a tela de redefinição
+    if (currentScreen == ScreenDestination.TROCA_SENHA_TEMPORARIA) {
+        BackHandler {
+            viewModel.cancelPasswordChange()
+        }
+        ChangeTemporaryPasswordScreen(
+            driverName = currentUserSession?.fullName ?: "Motorista",
+            matricula = loginUsername.ifBlank { "908" },
+            isUpdating = isUpdatingPassword,
+            errorMessage = updatePasswordError,
+            onUpdatePassword = { viewModel.updateTemporaryPassword(it) },
+            onCancel = { viewModel.cancelPasswordChange() }
         )
         return
     }
@@ -124,8 +143,8 @@ fun DeliveryApp(viewModel: DeliveryViewModel) {
                 isOnline = isOnline,
                 isSimulatedOffline = isSimulatedOffline,
                 pendingCount = pendingCount,
-                driverName = currentUserSession?.fullName ?: "WILIAN SOUSA DA SILVA",
-                driverCode = "908",
+                driverName = currentUserSession?.fullName ?: loginUsername.ifBlank { "Motorista" },
+                driverCode = currentUserSession?.email?.substringBefore("@")?.takeIf { it.isNotBlank() } ?: loginUsername.ifBlank { "" },
                 isRefreshing = isRefreshing,
                 onRefreshRealData = { viewModel.refreshRealData() },
                 onToggleOffline = { viewModel.toggleOfflineSimulation() },
@@ -164,6 +183,7 @@ fun DeliveryApp(viewModel: DeliveryViewModel) {
                         romaneio = selectedRomaneio,
                         nfs = selectedNfs,
                         isOnline = isOnline,
+                        driverName = currentUserSession?.fullName ?: loginUsername.ifBlank { "Motorista" },
                         onBack = { viewModel.navigateTo(ScreenDestination.LISTA_ROMANEIOS) },
                         onConfirm = { tipo, romaneioId, numeroRomaneio, nfId, numeroNf, nomeRecebedor, doc, obs, lat, lng, foto, ass ->
                             viewModel.confirmDelivery(
@@ -206,8 +226,8 @@ fun DeliveryApp(viewModel: DeliveryViewModel) {
                     )
                 }
 
-                ScreenDestination.LOGIN -> {
-                    // Já tratado no nível raiz
+                ScreenDestination.LOGIN, ScreenDestination.TROCA_SENHA_TEMPORARIA -> {
+                    // Já tratados no nível raiz com formulários dedicados
                 }
             }
         }

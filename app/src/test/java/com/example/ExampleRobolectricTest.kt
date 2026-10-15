@@ -23,7 +23,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [34])
 class ExampleRobolectricTest {
 
     @Test
@@ -52,7 +52,7 @@ class ExampleRobolectricTest {
     fun `testar fluxo completo de confirmacao offline no Room Database`() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = AppDatabase.getDatabase(context)
-        val repository = DeliveryRepository(db)
+        val repository = DeliveryRepository(context, db)
 
         // 1. Garante que os dados iniciais dos romaneios foram povoados
         repository.ensureInitialData()
@@ -161,7 +161,7 @@ class ExampleRobolectricTest {
     fun `testar filtragem de romaneios por data`() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Application>()
         val db = AppDatabase.getDatabase(app)
-        val repository = DeliveryRepository(db)
+        val repository = DeliveryRepository(app, db)
         repository.ensureInitialData()
 
         val romaneios = repository.allRomaneios.first()
@@ -178,5 +178,31 @@ class ExampleRobolectricTest {
         // Testa precisão do cálculo de últimos 30 dias
         val dentro30Dias = romaneios.filter { it.isWithinDays(30) }
         assertTrue("Deve conter romaneios nos últimos 30 dias", dentro30Dias.isNotEmpty())
+    }
+
+    @Test
+    fun `testar isolamento de romaneios por motorista e limpeza no logout`() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val db = AppDatabase.getDatabase(app)
+        val repository = DeliveryRepository(app, db)
+
+        // Simula login e dados do motorista 908
+        repository.setLocalDemoSession("908", "WILIAN SOUSA DA SILVA")
+        val romaneios908 = repository.allRomaneios.first()
+        assertTrue("Deve conter romaneios do motorista 908", romaneios908.isNotEmpty())
+        assertTrue("Todos os romaneios devem ser do Wilian", romaneios908.all { it.motoristaNome == "WILIAN SOUSA DA SILVA" })
+
+        // Motorista faz logout
+        repository.clearSession()
+        repository.clearLocalData()
+        val romaneiosAposLogout = repository.allRomaneios.first()
+        assertTrue("Banco deve estar completamente limpo após logout", romaneiosAposLogout.isEmpty())
+
+        // Simula login de outro motorista (ex: 278 Luciel)
+        repository.setLocalDemoSession("278", "LUCIEL VIEIRA MARQUES")
+        val romaneios278 = repository.allRomaneios.first()
+        assertTrue("Deve conter novos romaneios para o motorista 278", romaneios278.isNotEmpty())
+        assertTrue("Nenhum romaneio deve ser do motorista antigo", romaneios278.all { it.motoristaNome == "LUCIEL VIEIRA MARQUES" })
+        assertTrue("Nenhum romaneio do Wilian pode restar", romaneios278.none { it.motoristaNome == "WILIAN SOUSA DA SILVA" })
     }
 }

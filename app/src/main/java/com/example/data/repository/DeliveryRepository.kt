@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import android.content.Context
 import android.util.Log
 import com.example.data.local.AppDatabase
 import com.example.data.local.DeliveryConfirmationEntity
@@ -16,16 +17,62 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-class DeliveryRepository(private val db: AppDatabase) {
+class DeliveryRepository(
+    private val context: Context,
+    private val db: AppDatabase
+) {
     private val confirmationDao = db.deliveryConfirmationDao()
     private val romaneioDao = db.romaneioDao()
     private val nfDao = db.notaFiscalDao()
+    private val prefs = context.getSharedPreferences("logistica_app_prefs", Context.MODE_PRIVATE)
 
     private val fullDateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR"))
     private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
 
     private val _currentUserSession = MutableStateFlow<SupabaseUserSession?>(null)
     val currentUserSession: StateFlow<SupabaseUserSession?> = _currentUserSession.asStateFlow()
+
+    var lastUsedUsername: String? = null
+    var lastUsedPassword: String? = null
+
+    init {
+        // Carrega sessão salva previamente se existir
+        val savedUserId = prefs.getString("user_id", null)
+        val savedEmail = prefs.getString("user_email", null)
+        val savedName = prefs.getString("user_name", null)
+        val savedToken = prefs.getString("user_token", null)
+        lastUsedUsername = prefs.getString("last_username", null)
+        lastUsedPassword = prefs.getString("last_password", null)
+
+        if (!savedUserId.isNullOrBlank() && !savedToken.isNullOrBlank()) {
+            _currentUserSession.value = SupabaseUserSession(
+                userId = savedUserId,
+                email = savedEmail ?: "",
+                fullName = savedName ?: "Motorista",
+                accessToken = savedToken,
+                requiresPasswordChange = false
+            )
+        }
+    }
+
+    private fun persistSession(session: SupabaseUserSession?, username: String?, pass: String?) {
+        prefs.edit().apply {
+            if (session != null) {
+                putString("user_id", session.userId)
+                putString("user_email", session.email)
+                putString("user_name", session.fullName)
+                putString("user_token", session.accessToken)
+            } else {
+                remove("user_id")
+                remove("user_email")
+                remove("user_name")
+                remove("user_token")
+            }
+            if (!username.isNullOrBlank()) putString("last_username", username)
+            if (!pass.isNullOrBlank()) putString("last_password", pass)
+            apply()
+        }
+    }
 
     val allRomaneios: Flow<List<RomaneioEntity>> = romaneioDao.getAllRomaneios()
     val allConfirmations: Flow<List<DeliveryConfirmationEntity>> = confirmationDao.getAllConfirmations()
@@ -39,6 +86,102 @@ class DeliveryRepository(private val db: AppDatabase) {
 
     fun clearSession() {
         _currentUserSession.value = null
+        persistSession(null, null, null)
+    }
+
+    suspend fun clearLocalData() {
+        romaneioDao.clearAll()
+        nfDao.clearAll()
+    }
+
+    fun validateOfflinePassword(username: String, pass: String): Boolean {
+        val savedUser = prefs.getString("last_username", null)
+        val savedPass = prefs.getString("last_password", null)
+
+        val cleanUser = username.trim().lowercase()
+        val cleanSavedUser = savedUser?.trim()?.lowercase() ?: ""
+
+        // 1. Se existir senha salva previamente no dispositivo para este usuário, valida estritamente contra ela
+        if (!savedPass.isNullOrBlank()) {
+            if (cleanSavedUser.isNotBlank() && (cleanSavedUser == cleanUser || cleanSavedUser.contains(cleanUser) || cleanUser.contains(cleanSavedUser))) {
+                return savedPass == pass.trim()
+            }
+            return savedPass == pass.trim()
+        }
+
+        // 2. Se for primeiro acesso sem senha salva anterior, permite a senha temporária padrão do sistema
+        val isTempPass = pass.trim().equals("Logistica@2026", ignoreCase = true) ||
+            pass.trim().equals("logistica@26", ignoreCase = true) ||
+            pass.trim().equals("logistica2026", ignoreCase = true)
+
+        return isTempPass
+    }
+
+    suspend fun restoreOfflineSession(user: String, pass: String) {
+        lastUsedUsername = user
+        lastUsedPassword = pass
+        val savedUserId = prefs.getString("user_id", "offline-$user") ?: "offline-$user"
+        val savedEmail = prefs.getString("user_email", "$user@motorista.logistica.local") ?: "$user@motorista.logistica.local"
+        val savedName = prefs.getString("user_name", "Motorista $user") ?: "Motorista $user"
+        val savedToken = prefs.getString("user_token", SupabaseClient.SUPABASE_ANON_KEY) ?: SupabaseClient.SUPABASE_ANON_KEY
+
+        val session = SupabaseUserSession(
+            userId = savedUserId,
+            email = savedEmail,
+            fullName = savedName,
+            accessToken = savedToken,
+            requiresPasswordChange = false
+        )
+        _currentUserSession.value = session
+        persistSession(session, user, pass)
+    }
+
+    suspend fun setLocalDemoSession(matricula: String = "908", nome: String = "WILIAN SOUSA DA SILVA", pass: String? = null) {
+        lastUsedUsername = matricula
+        if (!pass.isNullOrBlank()) lastUsedPassword = pass
+        val isTempPass = pass?.trim()?.equals("Logistica@2026", ignoreCase = true) == true ||
+            pass?.trim()?.equals("logistica@26", ignoreCase = true) == true ||
+            pass?.trim()?.equals("logistica2026", ignoreCase = true) == true
+
+        val session = SupabaseUserSession(
+            userId = "demo-$matricula",
+            email = "$matricula@motorista.logistica.local",
+            fullName = nome,
+            accessToken = SupabaseClient.SUPABASE_ANON_KEY,
+            requiresPasswordChange = isTempPass
+        )
+        _currentUserSession.value = session
+        persistSession(session, matricula, pass)
+        romaneioDao.clearAll()
+        nfDao.clearAll()
+        seedOfflineFallbackData(nome)
+    }
+
+    suspend fun updateRomaneiosDriverName(driverName: String) {
+        if (driverName.isNotBlank()) {
+            romaneioDao.updateAllMotoristaNome(driverName)
+        }
+    }
+
+    suspend fun updatePassword(newPassword: String): Result<Unit> {
+        val session = _currentUserSession.value
+            ?: return Result.failure(Exception("Nenhuma sessão ativa encontrada."))
+        val result = SupabaseClient.updateUserPassword(session.accessToken, newPassword, session.email)
+        if (result.isSuccess) {
+            lastUsedPassword = newPassword
+            // Faz login imediatamente com a nova senha para obter token JWT atualizado
+            val user = lastUsedUsername ?: session.email
+            val relogin = SupabaseClient.login(user, newPassword)
+            if (relogin.isSuccess) {
+                val fresh = relogin.getOrThrow().copy(requiresPasswordChange = false)
+                _currentUserSession.value = fresh
+                persistSession(fresh, user, newPassword)
+            } else {
+                _currentUserSession.value = session.copy(requiresPasswordChange = false)
+                persistSession(_currentUserSession.value, user, newPassword)
+            }
+        }
+        return result
     }
 
     /**
@@ -48,20 +191,26 @@ class DeliveryRepository(private val db: AppDatabase) {
         user: String,
         pass: String
     ): Result<SupabaseUserSession> {
+        lastUsedUsername = user
+        lastUsedPassword = pass
         val loginResult = SupabaseClient.login(user, pass)
         if (loginResult.isSuccess) {
-            _currentUserSession.value = loginResult.getOrThrow()
+            val session = loginResult.getOrThrow()
+            _currentUserSession.value = session
+            persistSession(session, user, pass)
         }
         return loginResult
     }
 
     /**
      * Busca os romaneios do usuário autenticado e atualiza o banco local Room.
+     * Limpa o cache anterior para garantir que romaneios de outros motoristas não apareçam.
      */
     suspend fun syncRomaneiosFromSession(): Result<Int> {
         val session = _currentUserSession.value ?: return Result.failure(Exception("Sessão não iniciada"))
         val romaneiosResult = SupabaseClient.fetchRealRomaneios(session.accessToken)
         if (romaneiosResult.isFailure) {
+            ensureInitialData()
             return Result.failure(romaneiosResult.exceptionOrNull() ?: Exception("Falha ao buscar romaneios"))
         }
 
@@ -106,54 +255,51 @@ class DeliveryRepository(private val db: AppDatabase) {
         }
 
         if (romEntities.isNotEmpty()) {
+            // Atualiza o banco local Room com os dados do servidor Supabase
+            romaneioDao.clearAll()
+            nfDao.clearAll()
             romaneioDao.insertRomaneios(romEntities)
-        }
-        if (nfEntities.isNotEmpty()) {
-            nfDao.insertNfs(nfEntities)
+            if (nfEntities.isNotEmpty()) {
+                nfDao.insertNfs(nfEntities)
+            }
+        } else {
+            // Se o servidor retornou 0 romaneios novos e o Room está vazio, povoa o banco local
+            ensureInitialData()
         }
 
-        Log.i("DeliveryRepository", "Sincronização real concluída: ${romEntities.size} romaneios gravados no Room.")
-        return Result.success(romEntities.size)
+        Log.i("DeliveryRepository", "Sincronização concluída: ${romaneioDao.getCount()} romaneios no banco Room para ${session.fullName}.")
+        return Result.success(romaneioDao.getCount())
     }
 
     /**
-     * Sincroniza diretamente com a base de dados real do Supabase
-     * utilizando as credenciais informadas.
+     * Sincroniza diretamente utilizando a sessão atual ativa.
      */
     suspend fun syncWithRealSupabase(
-        user: String = "908",
-        pass: String = "wl908m"
+        user: String? = null,
+        pass: String? = null
     ): Result<Int> {
         try {
-            Log.i("DeliveryRepository", "Iniciando autenticação no Supabase para usuário: $user")
-            val loginResult = loginOnly(user, pass)
-            if (loginResult.isFailure) {
-                return Result.failure(loginResult.exceptionOrNull() ?: Exception("Falha de autenticação"))
+            if (user != null && pass != null) {
+                val loginResult = loginOnly(user, pass)
+                if (loginResult.isFailure) {
+                    return Result.failure(loginResult.exceptionOrNull() ?: Exception("Falha de autenticação"))
+                }
             }
             return syncRomaneiosFromSession()
         } catch (e: Exception) {
-            Log.e("DeliveryRepository", "Erro na sincronização com a base real", e)
+            Log.e("DeliveryRepository", "Erro na sincronização", e)
             return Result.failure(e)
         }
     }
 
     suspend fun ensureInitialData() {
-        // Se banco local estiver vazio, tenta sincronizar com o Supabase ou usa o seed de fallback
         if (romaneioDao.getCount() == 0) {
-            val syncRes = syncWithRealSupabase("908", "wl908m")
-            if (syncRes.isFailure) {
-                // Fallback para os dados conhecidos das capturas se estiver sem sinal na primeira inicialização
-                seedOfflineFallbackData()
-            }
-        } else {
-            // Se já tem dados locais, atualiza silenciosamente em background com os dados mais recentes do Supabase
-            try {
-                syncWithRealSupabase("908", "wl908m")
-            } catch (_: Exception) {}
+            val driverName = _currentUserSession.value?.fullName ?: "WILIAN SOUSA DA SILVA"
+            seedOfflineFallbackData(driverName)
         }
     }
 
-    private suspend fun seedOfflineFallbackData() {
+    private suspend fun seedOfflineFallbackData(driverName: String = _currentUserSession.value?.fullName ?: "Motorista") {
         val initialRomaneios = listOf(
             RomaneioEntity(
                 id = "rom-2359",
@@ -165,7 +311,7 @@ class DeliveryRepository(private val db: AppDatabase) {
                 quantidadeNfs = 5,
                 quantidadeVolumes = 9,
                 pesoTotalKg = 18.4,
-                motoristaNome = "WILIAN SOUSA DA SILVA",
+                motoristaNome = driverName,
                 createdAt = "2026-10-06T10:04:07"
             ),
             RomaneioEntity(
@@ -178,7 +324,7 @@ class DeliveryRepository(private val db: AppDatabase) {
                 quantidadeNfs = 1,
                 quantidadeVolumes = 4,
                 pesoTotalKg = 8.9,
-                motoristaNome = "WILIAN SOUSA DA SILVA",
+                motoristaNome = driverName,
                 createdAt = "2026-10-05T16:17:01"
             ),
             RomaneioEntity(
@@ -191,7 +337,7 @@ class DeliveryRepository(private val db: AppDatabase) {
                 quantidadeNfs = 2,
                 quantidadeVolumes = 2,
                 pesoTotalKg = 4.2,
-                motoristaNome = "WILIAN SOUSA DA SILVA",
+                motoristaNome = driverName,
                 createdAt = "2026-10-05T14:30:05"
             ),
             RomaneioEntity(
@@ -204,7 +350,7 @@ class DeliveryRepository(private val db: AppDatabase) {
                 quantidadeNfs = 2,
                 quantidadeVolumes = 2,
                 pesoTotalKg = 5.76,
-                motoristaNome = "WILIAN SOUSA DA SILVA",
+                motoristaNome = driverName,
                 createdAt = "2026-10-06T08:00:00"
             ),
             RomaneioEntity(
@@ -217,7 +363,7 @@ class DeliveryRepository(private val db: AppDatabase) {
                 quantidadeNfs = 3,
                 quantidadeVolumes = 6,
                 pesoTotalKg = 12.5,
-                motoristaNome = "WILIAN SOUSA DA SILVA",
+                motoristaNome = driverName,
                 createdAt = "2026-10-05T13:50:21"
             )
         )
@@ -292,7 +438,7 @@ class DeliveryRepository(private val db: AppDatabase) {
             longitude = longitude ?: -47.4789,
             canhotoFotoUri = canhotoFotoUri ?: "canhoto_${System.currentTimeMillis()}.jpg",
             assinaturaPresente = assinaturaPresente,
-            userId = _currentUserSession.value?.userId ?: "WILIAN SOUSA DA SILVA"
+            userId = _currentUserSession.value?.userId ?: _currentUserSession.value?.email ?: "motorista-local"
         )
 
         confirmationDao.insertConfirmation(entity)
@@ -355,28 +501,81 @@ class DeliveryRepository(private val db: AppDatabase) {
 
     suspend fun syncSingleConfirmationWithServer(item: DeliveryConfirmationEntity): Boolean {
         return try {
-            val session = _currentUserSession.value
-            val token = session?.accessToken ?: run {
-                // Se o token não estiver em cache, reautentica
-                val login = SupabaseClient.login("908", "wl908m")
-                if (login.isSuccess) {
-                    _currentUserSession.value = login.getOrThrow()
-                    login.getOrThrow().accessToken
-                } else null
+            var session = _currentUserSession.value
+            var token = session?.accessToken
+
+            // Se o token for nulo, em branco ou for a anon key (ex: acesso sem token ou reinício do app),
+            // tenta obter um token válido via login com as credenciais salvas
+            if (token.isNullOrBlank() || token == SupabaseClient.SUPABASE_ANON_KEY) {
+                val u = lastUsedUsername ?: prefs.getString("last_username", null)
+                val p = lastUsedPassword ?: prefs.getString("last_password", null)
+                if (!u.isNullOrBlank() && !p.isNullOrBlank()) {
+                    val loginRes = SupabaseClient.login(u, p)
+                    if (loginRes.isSuccess) {
+                        session = loginRes.getOrThrow()
+                        _currentUserSession.value = session
+                        persistSession(session, u, p)
+                        token = session.accessToken
+                    }
+                }
             }
 
-            if (token != null) {
-                val isoDate = isoDateFormat.format(Date(item.dataHoraEntrega))
-                val rpcResult = SupabaseClient.callRpcConfirmarEntrega(
-                    token = token,
-                    tipo = item.tipo,
-                    romaneioId = item.romaneioId,
-                    nfId = item.nfId,
-                    canhotoPath = item.canhotoFotoUri,
-                    dataHoraEntregaIso = isoDate
-                )
-                rpcResult.isSuccess
+            var activeToken = (token ?: "").ifBlank { SupabaseClient.SUPABASE_ANON_KEY }
+
+            if (activeToken.isBlank() || activeToken == SupabaseClient.SUPABASE_ANON_KEY) {
+                val u = lastUsedUsername ?: prefs.getString("last_username", null)
+                val p = lastUsedPassword ?: prefs.getString("last_password", null)
+                if (!u.isNullOrBlank() && !p.isNullOrBlank()) {
+                    val loginRes = SupabaseClient.login(u, p)
+                    if (loginRes.isSuccess) {
+                        session = loginRes.getOrThrow()
+                        _currentUserSession.value = session
+                        persistSession(session, u, p)
+                        activeToken = session.accessToken.ifBlank { SupabaseClient.SUPABASE_ANON_KEY }
+                    }
+                }
+            }
+
+            val isoDate = isoDateFormat.format(Date(item.dataHoraEntrega))
+            var rpcResult = SupabaseClient.callRpcConfirmarEntrega(
+                token = activeToken,
+                tipo = item.tipo,
+                romaneioId = item.romaneioId,
+                nfId = item.nfId,
+                canhotoPath = item.canhotoFotoUri,
+                dataHoraEntregaIso = isoDate
+            )
+
+                // Se falhou por sessão expirada ou não autenticado, renova a autenticação e tenta mais uma vez
+                if (rpcResult.isFailure) {
+                    val err = rpcResult.exceptionOrNull()?.message ?: ""
+                    if (err.contains("não autenticado", ignoreCase = true) || err.contains("401", ignoreCase = true)) {
+                        val u = lastUsedUsername ?: prefs.getString("last_username", null)
+                        val p = lastUsedPassword ?: prefs.getString("last_password", null)
+                        if (!u.isNullOrBlank() && !p.isNullOrBlank()) {
+                            val relogin = SupabaseClient.login(u, p)
+                            if (relogin.isSuccess) {
+                                val fresh = relogin.getOrThrow()
+                                _currentUserSession.value = fresh
+                                persistSession(fresh, u, p)
+                                rpcResult = SupabaseClient.callRpcConfirmarEntrega(
+                                    token = fresh.accessToken,
+                                    tipo = item.tipo,
+                                    romaneioId = item.romaneioId,
+                                    nfId = item.nfId,
+                                    canhotoPath = item.canhotoFotoUri,
+                                    dataHoraEntregaIso = isoDate
+                                )
+                            }
+                        }
+                    }
+                }
+
+            if (rpcResult.isSuccess) {
+                Log.i("DeliveryRepository", "Confirmação da NF ${item.numeroNf ?: item.numeroRomaneio} sincronizada com sucesso no Supabase!")
+                true
             } else {
+                Log.w("DeliveryRepository", "Falha RPC ao sincronizar: ${rpcResult.exceptionOrNull()?.message}")
                 false
             }
         } catch (e: Exception) {

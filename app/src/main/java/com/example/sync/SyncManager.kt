@@ -67,6 +67,23 @@ class SyncManager(
             recordOnlineTime()
         }
         registerNetworkCallback()
+
+        // Observa automaticamente alterações na lista de entregas pendentes e estado online para sincronizar sem ação manual
+        scope.launch {
+            repository.pendingCount.collect { count ->
+                if (count > 0 && _isOnline.value && syncJob?.isActive != true) {
+                    triggerSync("Sincronização automática de entregas pendentes")
+                }
+            }
+        }
+
+        scope.launch {
+            _isOnline.collect { online ->
+                if (online && repository.pendingCount.first() > 0 && syncJob?.isActive != true) {
+                    triggerSync("Conexão online ativa. Sincronizando automaticamente...")
+                }
+            }
+        }
     }
 
     fun recordOnlineTime(ts: Long = System.currentTimeMillis()) {
@@ -191,9 +208,13 @@ class SyncManager(
         val previous = _isOnline.value
         _isOnline.value = effective
 
-        // Se a internet voltou, inicia sincronização automática imediatamente!
-        if (effective && !previous) {
-            triggerSync("Internet restabelecida. Sincronizando automaticamente...")
+        // Se a internet voltou ou se o dispositivo está conectado com pendências, dispara a sincronização!
+        if (effective) {
+            scope.launch {
+                if (repository.pendingCount.first() > 0 && syncJob?.isActive != true) {
+                    triggerSync("Sincronização automática pós-reconexão")
+                }
+            }
         }
     }
 
@@ -270,8 +291,7 @@ class SyncManager(
             return true
         }
 
-        // Se houver instabilidade momentânea na rota, faz fallback seguro
-        delay(800)
-        return true
+        // Se falhou a sincronização real com o servidor, NÃO marca como sincronizado!
+        return false
     }
 }

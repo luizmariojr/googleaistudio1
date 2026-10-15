@@ -1,10 +1,12 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,41 +21,42 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.DeliveryConfirmationEntity
 import com.example.sync.SyncState
+import com.example.ui.theme.BrandAmber
 import com.example.ui.theme.BrandBlue
+import com.example.ui.theme.BrandEmerald
+import com.example.ui.theme.BrandNavy
+import com.example.ui.theme.BrandRed
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkHeader
 import com.example.ui.theme.DarkSurfaceCard
@@ -62,6 +65,7 @@ import com.example.ui.theme.StatusAmberBg
 import com.example.ui.theme.StatusAmberBorder
 import com.example.ui.theme.StatusAmberText
 import com.example.ui.theme.StatusEmeraldBg
+import com.example.ui.theme.StatusEmeraldBorder
 import com.example.ui.theme.StatusEmeraldText
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
@@ -76,450 +80,362 @@ fun SyncQueueScreen(
     pendingCount: Int,
     isOnline: Boolean,
     syncState: SyncState,
-    lastSyncTimestamp: Long? = null,
-    lastOnlineTimestamp: Long? = null,
+    lastSyncTimestamp: Long?,
+    lastOnlineTimestamp: Long?,
     onBack: () -> Unit,
     onTriggerSync: () -> Unit,
-    onRefreshRealData: () -> Unit = {},
+    onRefreshRealData: () -> Unit,
     onSelectForAudit: (DeliveryConfirmationEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isSyncing = syncState is SyncState.Syncing
-
-    val dateFormat = remember {
-        SimpleDateFormat("dd/MM/yyyy 'às' HH:mm:ss", Locale("pt", "BR"))
-    }
-    val formattedLastSync = remember(lastSyncTimestamp) {
-        if (lastSyncTimestamp != null && lastSyncTimestamp > 0L) {
-            dateFormat.format(Date(lastSyncTimestamp))
-        } else {
-            "Sincronização inicial pendente"
-        }
-    }
-    val formattedLastOnline = remember(lastOnlineTimestamp, isOnline) {
-        if (isOnline) {
-            "Conectado agora à rede (Online)"
-        } else if (lastOnlineTimestamp != null && lastOnlineTimestamp > 0L) {
-            dateFormat.format(Date(lastOnlineTimestamp))
-        } else {
-            "Sem conexão registrada"
-        }
-    }
+    val timeFormatter = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR"))
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // Barra superior
+        // Cabeçalho da Tela
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = DarkHeader,
-            shadowElevation = 2.dp
+            shadowElevation = 4.dp
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack, modifier = Modifier.testTag("queue_back_button")) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Voltar",
-                            tint = TextPrimary
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Column {
-                        Text(
-                            text = "Fila de Sincronização",
-                            fontWeight = FontWeight.Black,
-                            fontSize = 16.sp,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = if (isOnline) "Rede conectada ao servidor" else "Offline (guardando no aparelho)",
-                            fontSize = 11.sp,
-                            color = if (isOnline) StatusEmeraldText else StatusAmberText,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.testTag("sync_queue_back_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Voltar",
+                        tint = TextPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Fila de Sincronização & Auditoria",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "${confirmations.size} registros • $pendingCount pendente(s)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
                 }
 
-                Button(
-                    onClick = onTriggerSync,
-                    enabled = !isSyncing,
-                    modifier = Modifier
-                        .height(36.dp)
-                        .testTag("manual_sync_button"),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = BrandBlue,
-                        disabledContainerColor = Color(0xFF1E2C4F)
-                    )
+                IconButton(
+                    onClick = onRefreshRealData,
+                    enabled = isOnline && !isSyncing,
+                    modifier = Modifier.testTag("sync_queue_refresh_server")
                 ) {
-                    if (isSyncing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = if (isSyncing) "Sincronizando..." else "Sincronizar",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Atualizar do Servidor",
+                        tint = if (isOnline) BrandBlue else TextMuted
                     )
                 }
             }
         }
 
-        LazyColumn(
+        // Cartão de Status e Conectividade
+        Card(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
+            shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceCardBorder)
         ) {
-            item {
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Card de Conectividade e Horários Solicitados
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isOnline) BrandBlue.copy(alpha = 0.4f) else StatusAmberBorder
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "ESTADO DA CONEXÃO & SINCRONISMO",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = BrandBlue,
-                                letterSpacing = 0.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isOnline) StatusEmeraldBg else StatusAmberBg,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (isOnline) StatusEmeraldText.copy(alpha = 0.4f) else StatusAmberBorder
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (isOnline) Icons.Default.Wifi else Icons.Default.WifiOff,
-                                        contentDescription = null,
-                                        tint = if (isOnline) StatusEmeraldText else StatusAmberText,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (isOnline) "Online" else "Offline",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isOnline) StatusEmeraldText else StatusAmberText,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // 1. Horário da última sincronização
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(BrandBlue.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudDone,
-                                    contentDescription = null,
-                                    tint = BrandBlue,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Horário da última sincronização:",
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                                Text(
-                                    text = formattedLastSync,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // 2. Último horário que teve rede
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isOnline) StatusEmeraldBg else Color(0xFF7F1D1D).copy(alpha = 0.5f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (isOnline) Icons.Default.Wifi else Icons.Default.Schedule,
-                                    contentDescription = null,
-                                    tint = if (isOnline) StatusEmeraldText else Color(0xFFFCA5A5),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Último horário que teve rede:",
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                                Text(
-                                    text = formattedLastOnline,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isOnline) StatusEmeraldText else Color(0xFFFCA5A5)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Botão para atualizar lista completa de romaneios do servidor
-                        OutlinedButton(
-                            onClick = onRefreshRealData,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(38.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, BrandBlue.copy(alpha = 0.5f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudDownload,
-                                contentDescription = null,
-                                tint = BrandBlue,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Recarregar todos os romaneios da nuvem",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = BrandBlue
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Resumo de contadores
+            Column(modifier = Modifier.padding(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceCardBorder)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = "Aguardando Envio",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextSecondary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "$pendingCount",
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Black,
-                                color = if (pendingCount > 0) StatusAmberText else TextMuted
-                            )
-                        }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(
+                                    if (isOnline) BrandEmerald else BrandAmber,
+                                    shape = CircleShape
+                                )
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isOnline) "ONLINE COM A CENTRAL" else "MODO OFFLINE (SEGURO)",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isOnline) StatusEmeraldText else StatusAmberText
+                        )
                     }
 
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceCardBorder)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
+                    if (pendingCount > 0) {
+                        Surface(
+                            color = StatusAmberBg,
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, StatusAmberBorder)
+                        ) {
                             Text(
-                                text = "Sincronizados",
-                                fontSize = 11.sp,
+                                text = "$pendingCount Pendente(s)",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = TextSecondary
+                                color = StatusAmberText
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    } else {
+                        Surface(
+                            color = StatusEmeraldBg,
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, StatusEmeraldBorder)
+                        ) {
                             Text(
-                                text = "${confirmations.count { it.status == "SINCRONIZADO" }}",
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Black,
+                                text = "Tudo em Dia",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
                                 color = StatusEmeraldText
                             )
                         }
                     }
                 }
-            }
 
-            // Banner explicativo do protocolo de segurança
-            item {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color(0xFF0F1A30),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceCardBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = BrandBlue,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .padding(top = 1.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Garantia de Não Perda de Dados",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = TextPrimary
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Estado de Sincronização Dinâmico
+                when (syncState) {
+                    is SyncState.Syncing -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = BrandBlue,
+                                strokeWidth = 2.dp
                             )
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Uma confirmação offline JAMAIS é apagada da memória do aparelho antes que o servidor de backend confirme a gravação. Se houver falha de sinal no trajeto, ela permanece segura no banco local para reenvio automático.",
-                                fontSize = 11.sp,
-                                color = TextSecondary,
-                                lineHeight = 15.sp
+                                text = "Enviando: ${syncState.currentItem} (${syncState.progress}/${syncState.total})...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = BrandBlue
                             )
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
+                    is SyncState.Failed -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = BrandRed,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Falha no envio: ${syncState.error}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = BrandRed
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    is SyncState.Success -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = StatusEmeraldText,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = syncState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = StatusEmeraldText
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    else -> {}
                 }
-            }
 
-            item {
-                Text(
-                    text = "Registros de Confirmação no Aparelho",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = TextPrimary
-                )
-            }
-
-            if (confirmations.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                // Timestamps de Auditoria
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
                         Text(
-                            text = "Nenhuma confirmação registrada ainda.",
-                            color = TextMuted,
-                            fontSize = 13.sp
+                            text = "Último envio central: ${timeFormatter.format(Date(lastSyncTimestamp))}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    if (lastOnlineTimestamp != null && lastOnlineTimestamp > 0) {
+                        Text(
+                            text = "Último sinal de rede: ${timeFormatter.format(Date(lastOnlineTimestamp))}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted
                         )
                     }
                 }
-            } else {
-                items(confirmations, key = { it.id }) { item ->
-                    SyncQueueItemCard(
-                        item = item,
-                        onClick = { onSelectForAudit(item) }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Botão de Disparo Manual
+                Button(
+                    onClick = onTriggerSync,
+                    enabled = isOnline && !isSyncing && pendingCount > 0,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("sync_queue_trigger_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = BrandBlue,
+                        disabledContainerColor = DarkSurfaceCardBorder
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = TextPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Transmitindo para Central...", color = TextPrimary)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (pendingCount > 0) "Enviar $pendingCount Baixa(s) Pendente(s)" else "Nenhuma Baixa Pendente"
+                        )
+                    }
+                }
+            }
+        }
+
+        // Card Explicativo de Segurança & Auditoria Jurídica
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            color = BrandNavy,
+            shape = RoundedCornerShape(10.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceCardBorder)
+        ) {
+            Row(
+                modifier = Modifier.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = BrandEmerald,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Auditoria Jurídica: O momento real do aceite offline no aparelho fica gravado de forma imutável, mesmo se o envio à central ocorrer horas depois.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Lista de Comprovantes
+        if (confirmations.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = null,
+                        modifier = Modifier.size(56.dp),
+                        tint = BrandEmerald
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Fila Vazia",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Nenhuma confirmação de entrega pendente ou registrada localmente.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
                     )
                 }
             }
-
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("sync_queue_list"),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(confirmations, key = { it.id }) { item ->
+                    DeliveryConfirmationCard(
+                        confirmation = item,
+                        onClick = { onSelectForAudit(item) }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun SyncQueueItemCard(
-    item: DeliveryConfirmationEntity,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+fun DeliveryConfirmationCard(
+    confirmation: DeliveryConfirmationEntity,
+    onClick: () -> Unit
 ) {
-    val isSync = item.status == "SINCRONIZADO"
-    val isSending = item.status == "SINCRONIZANDO"
-    val isError = item.status == "ERRO"
+    val isPendente = confirmation.status == "PENDENTE"
+    val isSincronizado = confirmation.status == "SINCRONIZADO"
+    val isErro = confirmation.status == "ERRO"
 
     Card(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .testTag("queue_item_${item.numeroRomaneio}"),
-        shape = RoundedCornerShape(16.dp),
+            .testTag("queue_item_${confirmation.id}"),
         colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
-        border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceCardBorder)
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isPendente) StatusAmberBorder.copy(alpha = 0.6f) else DarkSurfaceCardBorder
+        )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            // Linha do Topo: Romaneio e Status
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Linha Superior: Tipo, NF/Romaneio e Status Chip
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -527,32 +443,37 @@ fun SyncQueueItemCard(
             ) {
                 Column {
                     Text(
-                        text = "ROMANEIO #${item.numeroRomaneio}",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 16.sp,
+                        text = when (confirmation.tipo) {
+                            "entrega_romaneio" -> "Romaneio Completo: ${confirmation.numeroRomaneio}"
+                            "entrega_nf" -> "Nota Fiscal: ${confirmation.numeroNf ?: "-"}"
+                            else -> "Retirada: ${confirmation.numeroRomaneio}"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
-                    Text(
-                        text = "Recebedor: ${item.nomeRecebedor}",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
+                    if (confirmation.numeroNf != null && confirmation.tipo == "entrega_romaneio") {
+                        Text(
+                            text = "NF #${confirmation.numeroNf}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
                 }
 
+                // Badge de Status
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
                     color = when {
-                        isSync -> StatusEmeraldBg
-                        isSending -> BrandBlue.copy(alpha = 0.2f)
-                        isError -> Color(0xFF450A0A)
+                        isSincronizado -> StatusEmeraldBg
+                        isErro -> BrandRed.copy(alpha = 0.2f)
                         else -> StatusAmberBg
                     },
+                    shape = RoundedCornerShape(6.dp),
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
                         when {
-                            isSync -> StatusEmeraldText.copy(alpha = 0.4f)
-                            isSending -> BrandBlue.copy(alpha = 0.4f)
-                            isError -> Color(0xFFDC2626).copy(alpha = 0.4f)
+                            isSincronizado -> StatusEmeraldBorder
+                            isErro -> BrandRed
                             else -> StatusAmberBorder
                         }
                     )
@@ -563,34 +484,30 @@ fun SyncQueueItemCard(
                     ) {
                         Icon(
                             imageVector = when {
-                                isSync -> Icons.Default.CloudDone
-                                isSending -> Icons.Default.CloudSync
-                                isError -> Icons.Default.ErrorOutline
-                                else -> Icons.Default.HourglassEmpty
+                                isSincronizado -> Icons.Default.CheckCircle
+                                isErro -> Icons.Default.CloudOff
+                                else -> Icons.Default.CloudUpload
                             },
                             contentDescription = null,
                             tint = when {
-                                isSync -> StatusEmeraldText
-                                isSending -> BrandBlue
-                                isError -> Color(0xFFF87171)
+                                isSincronizado -> StatusEmeraldText
+                                isErro -> BrandRed
                                 else -> StatusAmberText
                             },
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = when {
-                                isSync -> "Sincronizado"
-                                isSending -> "Enviando..."
-                                isError -> "Erro de Envio"
-                                else -> "Pendente na Fila"
+                                isSincronizado -> "SINCRONIZADO"
+                                isErro -> "ERRO"
+                                else -> "OFFLINE PENDENTE"
                             },
-                            fontSize = 10.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = when {
-                                isSync -> StatusEmeraldText
-                                isSending -> BrandBlue
-                                isError -> Color(0xFFF87171)
+                                isSincronizado -> StatusEmeraldText
+                                isErro -> BrandRed
                                 else -> StatusAmberText
                             }
                         )
@@ -598,108 +515,109 @@ fun SyncQueueItemCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // REQUISITO CRÍTICO: Tabela visual destacando os dois conceitos separados
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF0A0F1D),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E2C4F)),
-                modifier = Modifier.fillMaxWidth()
+            // Detalhes da Baixa
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Conceito 1: Data/Hora da Entrega
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(StatusEmeraldText)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Data/Hora da Entrega:",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                        }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Recebedor: ${confirmation.nomeRecebedor.ifBlank { "Não informado" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                    if (confirmation.documentoRecebedor.isNotBlank()) {
                         Text(
-                            text = item.dataHoraEntregaFormatada,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Black,
-                            color = StatusEmeraldText
+                            text = "Doc: ${confirmation.documentoRecebedor}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
                         )
                     }
+                }
 
-                    HorizontalDivider(color = Color(0xFF1E2C4F))
-
-                    // Conceito 2: Data/Hora da Sincronização
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isSync) BrandBlue else StatusAmberText)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
+                // Badges de Evidências
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (!confirmation.canhotoFotoUri.isNullOrBlank()) {
+                        Surface(
+                            color = BrandBlue.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
                             Text(
-                                text = "Data/Hora de Sincronização:",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
+                                text = "📸 Foto",
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = BrandBlue,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
-                        Text(
-                            text = item.dataHoraSincronizacaoFormatada ?: "Aguardando envio ao servidor",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isSync) BrandBlue else StatusAmberText
-                        )
+                    }
+                    if (confirmation.assinaturaPresente) {
+                        Surface(
+                            color = BrandEmerald.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "✍️ Assinatura",
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = StatusEmeraldText,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
 
-            if (item.ultimoErro != null) {
-                Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Timestamps de Auditoria
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(BrandNavy.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(8.dp)
+            ) {
                 Text(
-                    text = "Aviso: ${item.ultimoErro}",
-                    fontSize = 11.sp,
-                    color = Color(0xFFF87171),
+                    text = "Momento no Aparelho: ${confirmation.dataHoraEntregaFormatada}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextPrimary,
                     fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = if (confirmation.dataHoraSincronizacaoFormatada != null) {
+                        "Enviado à Central: ${confirmation.dataHoraSincronizacaoFormatada}"
+                    } else {
+                        "Enviado à Central: Aguardando conexão"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isSincronizado) StatusEmeraldText else TextMuted
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            if (!confirmation.ultimoErro.isNullOrBlank() && isErro) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Erro: ${confirmation.ultimoErro} (Tentativas: ${confirmation.tentativas})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = BrandRed
+                )
+            }
 
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Dica de clique para auditoria
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "ID: ${item.id.take(8)}... (UUID Único)",
-                    fontSize = 10.sp,
-                    color = TextMuted
-                )
-                Text(
-                    text = "Toque para ver auditoria >",
-                    fontSize = 11.sp,
-                    color = BrandBlue,
-                    fontWeight = FontWeight.Bold
+                    text = "Toque para ver auditoria completa ›",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = BrandBlue
                 )
             }
         }

@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
@@ -88,6 +89,8 @@ import java.io.File
 import java.io.FileOutputStream
 import com.example.data.local.NotaFiscalEntity
 import com.example.data.local.RomaneioEntity
+import com.example.data.model.PointDto
+import com.example.ui.components.SignaturePad
 import com.example.data.local.formatarNomeCliente
 import com.example.data.local.getClienteFormatado
 import com.example.data.local.getDataComHoraFormatada
@@ -118,6 +121,7 @@ fun DeliveryConfirmScreen(
     romaneio: RomaneioEntity?,
     nfs: List<NotaFiscalEntity>,
     isOnline: Boolean,
+    driverName: String? = null,
     onBack: () -> Unit,
     onConfirm: (
         tipo: String,
@@ -178,80 +182,7 @@ fun DeliveryConfirmScreen(
         }
     }
 
-    fun generateDigitalCanhoto(nf: NotaFiscalEntity) {
-        try {
-            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val storageDir = File(context.cacheDir, "canhotos").apply { mkdirs() }
-            val destFile = File(storageDir, "canhoto_digital_nf_${nf.numeroNf}_${timeStamp}.jpg")
-
-            val width = 720
-            val height = 480
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-
-            // Fundo
-            val bgPaint = Paint().apply { color = android.graphics.Color.WHITE }
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-
-            // Borda do canhoto
-            val borderPaint = Paint().apply {
-                color = android.graphics.Color.DKGRAY
-                style = Paint.Style.STROKE
-                strokeWidth = 4f
-            }
-            canvas.drawRoundRect(RectF(16f, 16f, width - 16f, height - 16f), 12f, 12f, borderPaint)
-
-            // Cabeçalho Bicicletão
-            val headerPaint = Paint().apply {
-                color = android.graphics.Color.rgb(10, 17, 40)
-                textSize = 28f
-                isFakeBoldText = true
-            }
-            canvas.drawText("GRUPO BICICLETÃO - COMPROVANTE DE ENTREGA", 36f, 65f, headerPaint)
-
-            val textPaint = Paint().apply {
-                color = android.graphics.Color.BLACK
-                textSize = 22f
-            }
-            canvas.drawText("ROMANEIO: #${romaneio.numeroRomaneio}", 36f, 120f, textPaint)
-            canvas.drawText("NOTA FISCAL: #${nf.numeroNf} (Volumes: ${nf.volumes})", 36f, 160f, textPaint)
-            canvas.drawText("DESTINATÁRIO: ${formatarNomeCliente(nf.destinatario)}", 36f, 200f, textPaint)
-            canvas.drawText("CIDADE/UF: ${nf.cidade}/${nf.uf}", 36f, 240f, textPaint)
-            val dataHoraAgora = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("pt", "BR")).format(Date())
-            canvas.drawText("DATA DA ENTREGA: $dataHoraAgora", 36f, 280f, textPaint)
-
-            // Carimbo de autenticação
-            val stampPaint = Paint().apply {
-                color = android.graphics.Color.rgb(5, 150, 105)
-                textSize = 24f
-                isFakeBoldText = true
-            }
-            canvas.drawText("✓ CANHOTO ASSINADO DIGITALMENTE", 36f, 360f, stampPaint)
-
-            // Linha de assinatura
-            val linePaint = Paint().apply {
-                color = android.graphics.Color.GRAY
-                strokeWidth = 2f
-            }
-            canvas.drawLine(36f, 430f, 450f, 430f, linePaint)
-            val assPaint = Paint().apply {
-                color = android.graphics.Color.DKGRAY
-                textSize = 16f
-            }
-            canvas.drawText("Assinatura do Recebedor", 36f, 452f, assPaint)
-
-            FileOutputStream(destFile).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
-            }
-
-            attachedPhotos[nf.id] = destFile.absolutePath
-            Toast.makeText(context, "Canhoto digital da NF ${nf.numeroNf} gerado com sucesso!", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(context, "Erro ao gerar canhoto: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    // Launcher para tirar foto com a Câmera nativa do Android
+    // Launcher para tirar foto com a Câmera nativa via FileProvider
     val takePictureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -267,6 +198,28 @@ fun DeliveryConfirmScreen(
                 if (path.isNotBlank()) {
                     attachedPhotos[nf.id] = path
                     Toast.makeText(context, "Foto do canhoto da NF ${nf.numeroNf} registrada!", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // Fallback launcher de miniatura/bitmap da Câmera
+    val takePicturePreviewLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            targetNfForMedia?.let { nf ->
+                try {
+                    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                    val storageDir = File(context.cacheDir, "canhotos").apply { mkdirs() }
+                    val photoFile = File(storageDir, "canhoto_nf_${nf.numeroNf}_${timeStamp}.jpg")
+                    FileOutputStream(photoFile).use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                    }
+                    attachedPhotos[nf.id] = photoFile.absolutePath
+                    Toast.makeText(context, "Foto da NF ${nf.numeroNf} tirada com sucesso!", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Foto registrada na NF ${nf.numeroNf}!", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -305,31 +258,39 @@ fun DeliveryConfirmScreen(
         }
     }
 
+    fun launchCameraInternal(nf: NotaFiscalEntity) {
+        try {
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            val storageDir = File(context.cacheDir, "canhotos").apply { mkdirs() }
+            val photoFile = File(storageDir, "canhoto_nf_${nf.numeroNf}_${timeStamp}.jpg")
+            val photoUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                photoFile
+            )
+            tempCameraFile = photoFile
+            tempCameraUri = photoUri
+            takePictureLauncher.launch(photoUri)
+        } catch (e: Exception) {
+            try {
+                takePicturePreviewLauncher.launch(null)
+            } catch (_: Exception) {
+                Toast.makeText(context, "Não foi possível abrir a câmera. Selecione da galeria.", Toast.LENGTH_SHORT).show()
+                showMediaOptionsForNf = nf
+            }
+        }
+    }
+
     // Launcher para solicitar permissão de CÂMERA
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             targetNfForMedia?.let { nf ->
-                try {
-                    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                    val storageDir = File(context.cacheDir, "canhotos").apply { mkdirs() }
-                    val photoFile = File(storageDir, "canhoto_nf_${nf.numeroNf}_${timeStamp}.jpg")
-                    val photoUri = FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        photoFile
-                    )
-                    tempCameraFile = photoFile
-                    tempCameraUri = photoUri
-                    takePictureLauncher.launch(photoUri)
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Câmera indisponível. Abrindo opções de anexo...", Toast.LENGTH_SHORT).show()
-                    showMediaOptionsForNf = nf
-                }
+                launchCameraInternal(nf)
             }
         } else {
-            Toast.makeText(context, "Permissão da câmera negada. Você pode escolher foto da galeria.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Permissão da câmera necessária para tirar fotos do canhoto.", Toast.LENGTH_LONG).show()
             targetNfForMedia?.let { showMediaOptionsForNf = it }
         }
     }
@@ -342,23 +303,7 @@ fun DeliveryConfirmScreen(
         ) == PackageManager.PERMISSION_GRANTED
 
         if (hasPermission) {
-            try {
-                val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                val storageDir = File(context.cacheDir, "canhotos").apply { mkdirs() }
-                val photoFile = File(storageDir, "canhoto_nf_${nf.numeroNf}_${timeStamp}.jpg")
-                val photoUri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    photoFile
-                )
-                tempCameraFile = photoFile
-                tempCameraUri = photoUri
-                takePictureLauncher.launch(photoUri)
-            } catch (e: Exception) {
-                // Caso não haja app de câmera ou falhe no emulador, abre o seletor com opções
-                Toast.makeText(context, "Não foi possível abrir a câmera diretamente. Selecione uma opção:", Toast.LENGTH_SHORT).show()
-                showMediaOptionsForNf = nf
-            }
+            launchCameraInternal(nf)
         } else {
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
@@ -633,8 +578,9 @@ fun DeliveryConfirmScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
+                        val nomeExibicao = driverName?.ifBlank { null } ?: romaneio.motoristaNome.ifBlank { "Motorista" }
                         Text(
-                            text = romaneio.motoristaNome,
+                            text = nomeExibicao,
                             fontSize = 12.sp,
                             color = TextPrimary,
                             fontWeight = FontWeight.SemiBold,
@@ -954,10 +900,10 @@ fun DeliveryConfirmScreen(
 
                                     Spacer(modifier = Modifier.height(10.dp))
 
-                                    // Opções para trocar foto ou documento
+                                    // Opções para trocar foto
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         OutlinedButton(
                                             onClick = { triggerCamera(nfItem) },
@@ -971,11 +917,11 @@ fun DeliveryConfirmScreen(
                                             Icon(
                                                 imageVector = Icons.Default.CameraAlt,
                                                 contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
+                                                modifier = Modifier.size(13.dp),
                                                 tint = BrandBlue
                                             )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Tirar outra", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text("Tirar outra foto", fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                                         }
 
                                         OutlinedButton(
@@ -990,17 +936,17 @@ fun DeliveryConfirmScreen(
                                             Icon(
                                                 imageVector = Icons.Default.Image,
                                                 contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
+                                                modifier = Modifier.size(13.dp),
                                                 tint = TextSecondary
                                             )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Galeria / PDF", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text("Galeria", fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                                         }
                                     }
                                 }
                             }
                         } else {
-                            // Caixa de captura de foto do canhoto (Borda tracejada e ícone de câmera azul como no print)
+                            // Caixa de captura de foto do canhoto
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = Color(0xFF0D1426),
@@ -1033,13 +979,13 @@ fun DeliveryConfirmScreen(
                                     }
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Text(
-                                        text = "Tirar foto ou anexar canhoto",
+                                        text = "Tirar foto do canhoto ou anexar",
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextPrimary
                                     )
                                     Text(
-                                        text = "Toque para abrir a câmera, galeria ou pastas",
+                                        text = "Câmera ou galeria de fotos do dispositivo",
                                         fontSize = 11.sp,
                                         color = TextSecondary
                                     )
@@ -1048,7 +994,7 @@ fun DeliveryConfirmScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Botão: "Escolher da galeria ou PDF" (abre gerenciador de arquivos/fotos)
+                            // Botão: "Escolher da galeria"
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = Color.Transparent,
@@ -1072,7 +1018,7 @@ fun DeliveryConfirmScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Galeria, Pastas ou Canhoto Digital",
+                                        text = "Câmera ou Galeria de Fotos",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = TextPrimary
@@ -1304,32 +1250,6 @@ fun DeliveryConfirmScreen(
                             }
                         }
                     }
-
-                    // 4. Canhoto Digital Automático
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF064E3B).copy(alpha = 0.4f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF059669)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                val t = target
-                                showMediaOptionsForNf = null
-                                generateDigitalCanhoto(t)
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = StatusEmeraldText, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text("Gerar Canhoto Digital de Teste", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = StatusEmeraldText)
-                                Text("Cria comprovante carimbado instantaneamente", fontSize = 11.sp, color = Color(0xFFA7F3D0))
-                            }
-                        }
-                    }
                 }
             },
             confirmButton = {},
@@ -1345,6 +1265,7 @@ fun DeliveryConfirmScreen(
     // Modal de Confirmação Rápida de Entrega da NF
     if (confirmingNf != null) {
         val targetNf = confirmingNf!!
+
         AlertDialog(
             onDismissRequest = { confirmingNf = null },
             title = {
@@ -1379,7 +1300,7 @@ fun DeliveryConfirmScreen(
                                 )
                             } else {
                                 Text(
-                                    text = "ℹ Você pode anexar o canhoto agora ou confirmar diretamente.",
+                                    text = "ℹ Você pode tirar foto com a câmera ou anexar foto da galeria.",
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )
@@ -1416,19 +1337,6 @@ fun DeliveryConfirmScreen(
                                 Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(13.dp), tint = TextSecondary)
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text("Galeria", fontSize = 10.sp, color = TextPrimary)
-                            }
-
-                            OutlinedButton(
-                                onClick = { generateDigitalCanhoto(targetNf) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(36.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF059669))
-                            ) {
-                                Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(13.dp), tint = StatusEmeraldText)
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("Auto", fontSize = 10.sp, color = StatusEmeraldText)
                             }
                         }
                     }
@@ -1468,16 +1376,18 @@ fun DeliveryConfirmScreen(
                             targetNf.id,
                             targetNf.numeroNf,
                             recebedorNomeInput,
-                            recebedorDocInput,
+                            recebedorDocInput.trim(),
                             observacaoInput,
                             -5.5266, // Imperatriz/MA
                             -47.4789,
                             photoUri,
-                            true
+                            false
                         )
                         confirmingNf = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ConfirmGreenBtn)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ConfirmGreenBtn
+                    )
                 ) {
                     Text("Confirmar Agora", color = Color.White, fontWeight = FontWeight.Bold)
                 }

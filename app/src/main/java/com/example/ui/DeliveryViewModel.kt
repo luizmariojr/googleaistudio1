@@ -25,12 +25,13 @@ enum class ScreenDestination {
     LISTA_ROMANEIOS,
     CONFIRMAR_ENTREGA,
     FILA_SINCRONIZACAO,
-    AUDITORIA_DETALHES
+    AUDITORIA_DETALHES,
+    TROCA_SENHA_TEMPORARIA
 }
 
 class DeliveryViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
-    val repository = DeliveryRepository(database)
+    val repository = DeliveryRepository(application, database)
     val syncManager = SyncManager(application, repository, viewModelScope)
 
     val romaneios: StateFlow<List<RomaneioEntity>> = repository.allRomaneios
@@ -90,35 +91,58 @@ class DeliveryViewModel(application: Application) : AndroidViewModel(application
             _loginError.value = null
             try {
                 if (syncManager.isOnline.value) {
-                    // Autenticação rápida com o Supabase (< 400ms)
+                    // Autenticação online diretamente no Supabase Auth (busca a senha cadastrada no banco Supabase)
                     val result = repository.loginOnly(user, pass)
                     if (result.isSuccess) {
-                        _currentScreen.value = ScreenDestination.LISTA_ROMANEIOS
-                        _isLoggingIn.value = false
+                        val session = result.getOrThrow()
+                        if (session.requiresPasswordChange) {
+                            // Se a senha for padrão/temporária (ex: Logistica@2026), exige redefinição no Supabase
+                            _currentScreen.value = ScreenDestination.TROCA_SENHA_TEMPORARIA
+                            _isLoggingIn.value = false
+                        } else {
+                            _currentScreen.value = ScreenDestination.LISTA_ROMANEIOS
+                            _isLoggingIn.value = false
 
-                        // Dispara a sincronização de romaneios em segundo plano de forma assíncrona
-                        launch(Dispatchers.IO) {
-                            try {
-                                repository.syncRomaneiosFromSession()
-                                syncManager.recordSyncTime()
-                            } catch (e: Exception) {
-                                Log.w("DeliveryViewModel", "Sincronização em background falhou", e)
+                            // Dispara a sincronização de romaneios em segundo plano de forma assíncrona
+                            launch(Dispatchers.IO) {
+                                try {
+                                    repository.syncRomaneiosFromSession()
+                                    syncManager.recordSyncTime()
+                                } catch (e: Exception) {
+                                    Log.w("DeliveryViewModel", "Sincronização em background falhou", e)
+                                }
                             }
                         }
                     } else {
-                        val msg = result.exceptionOrNull()?.message ?: "Falha ao autenticar."
+                        val msg = result.exceptionOrNull()?.message ?: "Falha ao autenticar no Supabase."
                         _loginError.value = msg
                         _isLoggingIn.value = false
                     }
                 } else {
-                    // Modo offline
-                    if (repository.hasLocalData()) {
-                        _currentScreen.value = ScreenDestination.LISTA_ROMANEIOS
-                        _offlineBannerMessage.value = "Acesso em modo offline. Confirmações serão salvas localmente."
+                    // Modo offline: valida a senha informada contra a última informação salva do banco offline
+                    val isValidOffline = repository.validateOfflinePassword(user, pass)
+                    if (isValidOffline) {
+                        val isTempPass = pass.equals("Logistica@2026", ignoreCase = true) ||
+                            pass.equals("logistica@26", ignoreCase = true) ||
+                            pass.equals("logistica2026", ignoreCase = true)
+
+                        if (isTempPass) {
+                            repository.setLocalDemoSession(
+                                matricula = user.ifBlank { "908" },
+                                nome = if (user == "908" || user.isBlank()) "WILIAN SOUSA DA SILVA" else "Motorista $user",
+                                pass = pass
+                            )
+                            _currentScreen.value = ScreenDestination.TROCA_SENHA_TEMPORARIA
+                        } else {
+                            repository.restoreOfflineSession(user, pass)
+                            _currentScreen.value = ScreenDestination.LISTA_ROMANEIOS
+                            _offlineBannerMessage.value = "Acesso em modo offline. Confirmações serão salvas localmente."
+                        }
+                        _isLoggingIn.value = false
                     } else {
-                        _loginError.value = "Sem conexão no momento. Conecte-se à internet para o primeiro acesso."
+                        _loginError.value = "Senha offline incorreta. Informe a última senha cadastrada ou conecte-se à internet para autenticar no Supabase."
+                        _isLoggingIn.value = false
                     }
-                    _isLoggingIn.value = false
                 }
             } catch (e: Exception) {
                 _loginError.value = e.message ?: "Erro ao realizar login"
@@ -128,8 +152,56 @@ class DeliveryViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun logout() {
-        repository.clearSession()
+        viewModelScope.launch {
+            repository.clearSession()
+            repository.clearLocalData()
+        }
+        _loginPassword.value = ""
+        _selectedRomaneio.value = null
+        _selectedNfs.value = emptyList()
         _currentScreen.value = ScreenDestination.LOGIN
+    }
+
+    private val _isUpdatingPassword = MutableStateFlow(false)
+    val isUpdatingPassword: StateFlow<Boolean> = _isUpdatingPassword.asStateFlow()
+
+    private val _updatePasswordError = MutableStateFlow<String?>(null)
+    val updatePasswordError: StateFlow<String?> = _updatePasswordError.asStateFlow()
+
+    fun updateTemporaryPassword(newPassword: String) {
+        viewModelScope.launch {
+            _isUpdatingPassword.value = true
+            _updatePasswordError.value = null
+            try {
+                val res = repository.updatePassword(newPassword)
+                if (res.isSuccess) {
+                    // Atualiza a senha armazenada localmente no formulário para a nova senha
+                    _loginPassword.value = newPassword
+                    _isUpdatingPassword.value = false
+                    _currentScreen.value = ScreenDestination.LISTA_ROMANEIOS
+
+                    // Inicia sincronização de romaneios em segundo plano
+                    launch(Dispatchers.IO) {
+                        try {
+                            repository.syncRomaneiosFromSession()
+                            syncManager.recordSyncTime()
+                        } catch (e: Exception) {
+                            Log.w("DeliveryViewModel", "Sincronização em background falhou", e)
+                        }
+                    }
+                } else {
+                    _updatePasswordError.value = res.exceptionOrNull()?.message ?: "Erro ao atualizar senha."
+                    _isUpdatingPassword.value = false
+                }
+            } catch (e: Exception) {
+                _updatePasswordError.value = e.message ?: "Erro ao salvar nova senha."
+                _isUpdatingPassword.value = false
+            }
+        }
+    }
+
+    fun cancelPasswordChange() {
+        logout()
     }
 
     private val _selectedRomaneio = MutableStateFlow<RomaneioEntity?>(null)
@@ -200,9 +272,9 @@ class DeliveryViewModel(application: Application) : AndroidViewModel(application
         latitude: Double? = -23.55052,
         longitude: Double? = -46.633308,
         canhotoFotoUri: String? = "foto_canhoto_salva.jpg",
-        assinaturaPresente: Boolean = true
+        assinaturaPresente: Boolean = false
     ) {
-        // Mensagem obrigatória da interface requerida pelo cliente exibida imediatamente:
+        // Mensagem de confirmação exibida imediatamente:
         _offlineBannerMessage.value = "Entrega confirmada neste dispositivo. Aguardando sincronização."
 
         viewModelScope.launch {
@@ -227,7 +299,8 @@ class DeliveryViewModel(application: Application) : AndroidViewModel(application
                 syncManager.triggerSync("Confirmação realizada enquanto conectado")
             }
 
-            _currentScreen.value = ScreenDestination.LISTA_ROMANEIOS
+            // Permanece na tela do romaneio que está sendo confirmado
+            _currentScreen.value = ScreenDestination.CONFIRMAR_ENTREGA
         }
     }
 
@@ -238,7 +311,7 @@ class DeliveryViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
-                val res = repository.syncWithRealSupabase("908", "wl908m")
+                val res = repository.syncRomaneiosFromSession()
                 if (res.isSuccess) {
                     syncManager.recordSyncTime()
                 }

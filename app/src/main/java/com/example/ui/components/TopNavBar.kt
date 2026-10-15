@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -62,8 +63,8 @@ fun TopNavBar(
     isOnline: Boolean,
     isSimulatedOffline: Boolean,
     pendingCount: Int,
-    driverName: String = "WILIAN SOUSA DA SILVA",
-    driverCode: String = "908",
+    driverName: String = "Motorista",
+    driverCode: String = "",
     isRefreshing: Boolean = false,
     onRefreshRealData: () -> Unit = {},
     onToggleOffline: () -> Unit,
@@ -102,16 +103,17 @@ fun TopNavBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(BrandBlue.copy(alpha = 0.22f)),
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White)
+                            .padding(2.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.LocalShipping,
+                        coil.compose.AsyncImage(
+                            model = com.example.R.drawable.ic_bicicletao_logo,
                             contentDescription = "Portal logístico",
-                            tint = BrandBlue,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit
                         )
                     }
 

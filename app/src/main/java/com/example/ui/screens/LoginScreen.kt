@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -132,17 +133,17 @@ fun LoginScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
+                            .size(52.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(BrandRed.copy(alpha = 0.18f))
-                            .border(1.dp, BrandRed.copy(alpha = 0.35f), RoundedCornerShape(12.dp)),
+                            .background(Color.White)
+                            .padding(4.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.LocalShipping,
-                            contentDescription = "Logo",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
+                        coil.compose.AsyncImage(
+                            model = com.example.R.drawable.ic_bicicletao_logo,
+                            contentDescription = "Logo Grupo Bicicletão",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit
                         )
                     }
 
@@ -223,7 +224,7 @@ fun LoginScreen(
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFFEF4444).copy(alpha = 0.12f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f)),
+                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 18.dp)
@@ -268,7 +269,7 @@ fun LoginScreen(
                     .testTag("login_username_input"),
                 placeholder = {
                     Text(
-                        text = "Ex: 908 ou CNPJ",
+                        text = "Matrícula ou CNPJ",
                         color = Color(0xFF64748B),
                         fontSize = 14.sp
                     )

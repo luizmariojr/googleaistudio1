@@ -15,7 +15,7 @@ data class RomaneioEntity(
     val quantidadeNfs: Int = 1,
     val quantidadeVolumes: Int,
     val pesoTotalKg: Double,
-    val motoristaNome: String = "WILIAN SOUSA DA SILVA",
+    val motoristaNome: String = "",
     val prazoEntrega: String = "Hoje",
     val permiteCanhotoUnico: Boolean = true,
     val entregueEm: Long? = null,

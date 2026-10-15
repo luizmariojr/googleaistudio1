@@ -1,33 +1,68 @@
 package com.example.ui.theme
 
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = BrandBlue,
-    onPrimary = Color.White,
-    primaryContainer = BrandBlueContainer,
-    onPrimaryContainer = Color.White,
-    secondary = ConfirmGreenBtn,
-    onSecondary = Color.White,
-    background = DarkBackground,
-    surface = DarkSurfaceCard,
-    surfaceVariant = DarkHeader,
-    onBackground = TextPrimary,
-    onSurface = TextPrimary,
-    onSurfaceVariant = TextSecondary,
-    outline = DarkSurfaceCardBorder
+    primary = EmeraldGreenContainer,
+    onPrimary = EmeraldGreenOnContainer,
+    primaryContainer = DarkForest,
+    onPrimaryContainer = EmeraldGreenContainer,
+    secondary = SecondaryTealContainer,
+    onSecondary = OnSecondaryTealContainer,
+    background = SurfaceDark,
+    surface = SurfaceDark,
+    surfaceVariant = SurfaceVariantDark,
+    outline = OutlineDark
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = EmeraldGreenPrimary,
+    onPrimary = EmeraldGreenOnPrimary,
+    primaryContainer = EmeraldGreenContainer,
+    onPrimaryContainer = EmeraldGreenOnContainer,
+    secondary = SecondaryTeal,
+    onSecondary = EmeraldGreenOnPrimary,
+    secondaryContainer = SecondaryTealContainer,
+    onSecondaryContainer = OnSecondaryTealContainer,
+    background = SurfaceLight,
+    surface = SurfaceLight,
+    surfaceVariant = SurfaceVariantLight,
+    outline = OutlineLight
 )
 
 @Composable
-fun MyApplicationTheme(
+fun BicicletaoTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
+
     MaterialTheme(
-        colorScheme = DarkColorScheme,
+        colorScheme = colorScheme,
         typography = Typography,
         content = content
     )
 }
+
+@Composable
+fun MyApplicationTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = false,
+    content: @Composable () -> Unit
+) = BicicletaoTheme(darkTheme, dynamicColor, content)

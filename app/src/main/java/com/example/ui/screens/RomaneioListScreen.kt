@@ -190,21 +190,20 @@ fun RomaneioListScreen(
     }
 
     // Status permitidos na aba Em Aberto conforme especificação estrita: Criado, Embarcado, Em transito, Coletado
-    val statusEmAbertoPermitidos = remember {
-        setOf("criado", "embarcado", "em transito", "em trânsito", "coletado")
-    }
-
     val totalEmAberto = remember(romaneios) {
-        romaneios.count { statusEmAbertoPermitidos.contains(it.status.trim().lowercase()) }
+        romaneios.count {
+            val norm = it.status.trim().lowercase()
+            !norm.contains("entregue") && !norm.contains("conclu") && !norm.contains("cancel")
+        }
     }
 
     // Filtragem precisa dos romaneios por Status (aba), Data e Busca
     val displayedRomaneios = remember(romaneios, selectedTab, dateFilter, searchQuery) {
         romaneios.filter { rom ->
-            // 1. Filtro da Aba: Somente status em aberto permitidos
+            // 1. Filtro da Aba: Exibe qualquer entrega em aberto (que ainda não foi entregue ou concluída)
             val matchesTab = if (selectedTab == "em_aberto") {
                 val normStatus = rom.status.trim().lowercase()
-                statusEmAbertoPermitidos.contains(normStatus)
+                !normStatus.contains("entregue") && !normStatus.contains("conclu") && !normStatus.contains("cancel")
             } else {
                 true
             }

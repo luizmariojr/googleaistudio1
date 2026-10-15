@@ -39,7 +39,7 @@ interface DeliveryConfirmationDao {
 
 @Dao
 interface RomaneioDao {
-    @Query("SELECT * FROM romaneios_cache ORDER BY CAST(numeroRomaneio AS INTEGER) DESC")
+    @Query("SELECT * FROM romaneios_cache ORDER BY createdAt DESC, numeroRomaneio DESC")
     fun getAllRomaneios(): Flow<List<RomaneioEntity>>
 
     @Query("SELECT * FROM romaneios_cache WHERE id = :id")
@@ -51,12 +51,20 @@ interface RomaneioDao {
     @Query("UPDATE romaneios_cache SET status = :status, entregueEm = :entregueEm, entregueEmFormatado = :entregueEmFormatado WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, entregueEm: Long?, entregueEmFormatado: String?)
 
+    @Query("UPDATE romaneios_cache SET motoristaNome = :driverName")
+    suspend fun updateAllMotoristaNome(driverName: String)
+
     @Query("SELECT COUNT(*) FROM romaneios_cache")
     suspend fun getCount(): Int
+
+    @Query("DELETE FROM romaneios_cache")
+    suspend fun clearAll()
 }
 
 @Dao
 interface NotaFiscalDao {
+    @Query("DELETE FROM notas_fiscais_cache")
+    suspend fun clearAll()
     @Query("SELECT * FROM notas_fiscais_cache WHERE romaneioId = :romaneioId")
     fun getNfsByRomaneio(romaneioId: String): Flow<List<NotaFiscalEntity>>
 
