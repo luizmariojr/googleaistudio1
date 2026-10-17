@@ -202,6 +202,13 @@ fun AuditDetailScreen(
                         color = Color(0xFF94A3B8)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                    val uri = confirmation.canhotoFotoUri.orEmpty()
+                    val displayCanhoto = if (uri.startsWith("/")) {
+                        val clean = java.io.File(uri).name
+                        "${confirmation.romaneioId}/$clean"
+                    } else {
+                        uri
+                    }
                     Text(
                         text = """
 {
@@ -213,7 +220,7 @@ fun AuditDetailScreen(
   "p_recebedor_doc": "${confirmation.documentoRecebedor}",
   "p_latitude": ${confirmation.latitude},
   "p_longitude": ${confirmation.longitude},
-  "p_canhoto_path": "${confirmation.canhotoFotoUri}",
+  "p_canhoto_path": "$displayCanhoto",
   "p_observacao": "${confirmation.observacao}"
 }
                         """.trimIndent(),

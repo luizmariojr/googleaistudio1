@@ -1,0 +1,6 @@
+{
+  "summary": "Plano de implementação para correção definitiva do upload de anexos de canhoto no bucket correto do Supabase (romaneio_anexos), garantindo persistência online e sincronização com o portal/backoffice.",
+  "updatedAt": "2026-10-17T11:46:00.350266973Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

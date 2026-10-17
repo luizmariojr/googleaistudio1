@@ -1,6 +1,7 @@
 package com.example.data.remote
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -384,7 +385,7 @@ object SupabaseClient {
 
     /**
      * Upload do arquivo binário real da foto do canhoto (ou geração de imagem com comprovante)
-     * diretamente para o Supabase Storage bucket 'canhotos'.
+     * diretamente para o Supabase Storage bucket 'romaneio_anexos'.
      */
     suspend fun uploadCanhotoFileToStorage(
         context: android.content.Context,
@@ -420,9 +421,34 @@ object SupabaseClient {
                 if (canhotoPathOrUri.startsWith("/")) {
                     val localFile = File(canhotoPathOrUri)
                     if (localFile.exists() && localFile.length() > 0) {
-                        imageBytes = localFile.readBytes()
-                        if (localFile.name.endsWith(".pdf", ignoreCase = true)) {
-                            contentType = "application/pdf"
+                        try {
+                            if (localFile.name.endsWith(".pdf", ignoreCase = true)) {
+                                contentType = "application/pdf"
+                                imageBytes = localFile.readBytes()
+                            } else {
+                                // Otimização e compressão para JPEG
+                                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                BitmapFactory.decodeFile(localFile.absolutePath, bounds)
+                                var sample = 1
+                                while (bounds.outWidth / sample > 1920 || bounds.outHeight / sample > 1920) {
+                                    sample *= 2
+                                }
+                                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                                val bmp = BitmapFactory.decodeFile(localFile.absolutePath, opts)
+                                if (bmp != null) {
+                                    val stream = ByteArrayOutputStream()
+                                    bmp.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                                    imageBytes = stream.toByteArray()
+                                    contentType = "image/jpeg"
+                                } else {
+                                    imageBytes = localFile.readBytes()
+                                    contentType = "image/jpeg"
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Erro ao otimizar foto local: ${e.message}")
+                            imageBytes = localFile.readBytes()
+                            contentType = "image/jpeg"
                         }
                     }
                 } else if (canhotoPathOrUri.startsWith("content://")) {
@@ -430,8 +456,22 @@ object SupabaseClient {
                         val uri = Uri.parse(canhotoPathOrUri)
                         val type = context.contentResolver.getType(uri)
                         if (type != null) contentType = type
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            imageBytes = input.readBytes()
+                        val rawBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        if (rawBytes != null && rawBytes.isNotEmpty()) {
+                            if (contentType == "application/pdf") {
+                                imageBytes = rawBytes
+                            } else {
+                                val bmp = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+                                if (bmp != null) {
+                                    val stream = ByteArrayOutputStream()
+                                    bmp.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                                    imageBytes = stream.toByteArray()
+                                    contentType = "image/jpeg"
+                                } else {
+                                    imageBytes = rawBytes
+                                    contentType = "image/jpeg"
+                                }
+                            }
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Não foi possível ler URI $canhotoPathOrUri: ${e.message}")
@@ -439,7 +479,7 @@ object SupabaseClient {
                 }
             }
 
-            if (imageBytes == null || imageBytes!!.isEmpty()) {
+            if (imageBytes == null || imageBytes.isEmpty()) {
                 Log.i(TAG, "Criando imagem digital de canhoto para upload no Supabase Storage...")
                 val width = 1000
                 val height = 750
@@ -481,7 +521,8 @@ object SupabaseClient {
                 contentType = "image/jpeg"
             }
 
-            val bucketsToTry = listOf("canhotos", "canhoto", "canhotos-portal")
+            // O bucket oficial do Supabase do projeto é 'romaneio_anexos'
+            val bucketsToTry = listOf("romaneio_anexos", "romaneios_anexos", "canhotos", "anexos")
             var uploadSuccess = false
             var lastError = ""
 
@@ -496,8 +537,8 @@ object SupabaseClient {
                     conn.setRequestProperty("x-upsert", "true")
                     conn.setRequestProperty("cache-control", "3600")
                     conn.doOutput = true
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 15000
+                    conn.connectTimeout = 20000
+                    conn.readTimeout = 20000
 
                     conn.outputStream.use { os ->
                         os.write(imageBytes)

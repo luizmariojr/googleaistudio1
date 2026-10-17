@@ -33,6 +33,9 @@ interface DeliveryConfirmationDao {
     @Query("UPDATE offline_confirmations SET status = 'SINCRONIZADO', dataHoraSincronizacao = :syncTime, dataHoraSincronizacaoFormatada = :syncFormatada, ultimoErro = null WHERE id = :id")
     suspend fun markSynchronized(id: String, syncTime: Long, syncFormatada: String)
 
+    @Query("UPDATE offline_confirmations SET canhotoFotoUri = :remotePath WHERE id = :id")
+    suspend fun updateCanhotoPath(id: String, remotePath: String)
+
     @Query("DELETE FROM offline_confirmations WHERE id = :id")
     suspend fun deleteConfirmation(id: String)
 }

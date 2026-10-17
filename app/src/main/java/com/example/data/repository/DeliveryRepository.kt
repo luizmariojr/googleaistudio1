@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -536,15 +537,55 @@ class DeliveryRepository(
                 }
             }
 
-            // 1. Faz upload do arquivo de imagem do canhoto para o Supabase Storage 'canhotos'
-            val storageUploadRes = SupabaseClient.uploadCanhotoFileToStorage(
+            // 1. Faz upload do arquivo de imagem do canhoto para o Supabase Storage 'romaneio_anexos'
+            var storageUploadRes = SupabaseClient.uploadCanhotoFileToStorage(
                 context = context,
                 token = activeToken,
                 romaneioId = item.romaneioId,
                 canhotoPathOrUri = item.canhotoFotoUri,
                 numeroNf = item.numeroNf ?: item.numeroRomaneio
             )
-            val uploadedPath = storageUploadRes.getOrNull() ?: item.canhotoFotoUri
+
+            // Se falhou por autenticação ou permissão (401/403/AccessDenied), renova a sessão e repete o upload
+            if (storageUploadRes.isFailure) {
+                val err = storageUploadRes.exceptionOrNull()?.message.orEmpty()
+                if (err.contains("Unauthorized", ignoreCase = true) ||
+                    err.contains("401", ignoreCase = true) ||
+                    err.contains("403", ignoreCase = true) ||
+                    err.contains("AccessDenied", ignoreCase = true) ||
+                    err.contains("row-level security", ignoreCase = true)
+                ) {
+                    val u = lastUsedUsername ?: prefs.getString("last_username", null)
+                    val p = lastUsedPassword ?: prefs.getString("last_password", null)
+                    if (!u.isNullOrBlank() && !p.isNullOrBlank()) {
+                        val relogin = SupabaseClient.login(u, p)
+                        if (relogin.isSuccess) {
+                            val fresh = relogin.getOrThrow()
+                            _currentUserSession.value = fresh
+                            persistSession(fresh, u, p)
+                            activeToken = fresh.accessToken
+                            storageUploadRes = SupabaseClient.uploadCanhotoFileToStorage(
+                                context = context,
+                                token = fresh.accessToken,
+                                romaneioId = item.romaneioId,
+                                canhotoPathOrUri = item.canhotoFotoUri,
+                                numeroNf = item.numeroNf ?: item.numeroRomaneio
+                            )
+                        }
+                    }
+                }
+            }
+
+            val cleanFileName = if (!item.canhotoFotoUri.isNullOrBlank()) {
+                val f = File(item.canhotoFotoUri).name
+                if (f.isNotBlank()) f else "canhoto_${System.currentTimeMillis()}.jpg"
+            } else {
+                "canhoto_${System.currentTimeMillis()}.jpg"
+            }
+            val remoteRelativePath = storageUploadRes.getOrNull() ?: "${item.romaneioId}/$cleanFileName"
+
+            // Atualiza o caminho no banco de dados local com o path relativo correto
+            confirmationDao.updateCanhotoPath(item.id, remoteRelativePath)
 
             val isoDate = isoDateFormat.format(Date(item.dataHoraEntrega))
             var rpcResult = SupabaseClient.callRpcConfirmarEntrega(
@@ -552,7 +593,7 @@ class DeliveryRepository(
                 tipo = item.tipo,
                 romaneioId = item.romaneioId,
                 nfId = item.nfId,
-                canhotoPath = uploadedPath,
+                canhotoPath = remoteRelativePath,
                 dataHoraEntregaIso = isoDate
             )
 
@@ -569,21 +610,12 @@ class DeliveryRepository(
                             _currentUserSession.value = fresh
                             persistSession(fresh, u, p)
 
-                            val retryUpload = SupabaseClient.uploadCanhotoFileToStorage(
-                                context = context,
-                                token = fresh.accessToken,
-                                romaneioId = item.romaneioId,
-                                canhotoPathOrUri = item.canhotoFotoUri,
-                                numeroNf = item.numeroNf ?: item.numeroRomaneio
-                            )
-                            val retryPath = retryUpload.getOrNull() ?: uploadedPath
-
                             rpcResult = SupabaseClient.callRpcConfirmarEntrega(
                                 token = fresh.accessToken,
                                 tipo = item.tipo,
                                 romaneioId = item.romaneioId,
                                 nfId = item.nfId,
-                                canhotoPath = retryPath,
+                                canhotoPath = remoteRelativePath,
                                 dataHoraEntregaIso = isoDate
                             )
                         }
@@ -592,7 +624,7 @@ class DeliveryRepository(
             }
 
             if (rpcResult.isSuccess) {
-                Log.i("DeliveryRepository", "Confirmação da NF ${item.numeroNf ?: item.numeroRomaneio} sincronizada com sucesso no Supabase!")
+                Log.i("DeliveryRepository", "Confirmação da NF ${item.numeroNf ?: item.numeroRomaneio} sincronizada com sucesso no Supabase! Path: $remoteRelativePath")
                 true
             } else {
                 Log.w("DeliveryRepository", "Falha RPC ao sincronizar: ${rpcResult.exceptionOrNull()?.message}")
