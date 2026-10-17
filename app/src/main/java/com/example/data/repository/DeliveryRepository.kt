@@ -536,40 +536,60 @@ class DeliveryRepository(
                 }
             }
 
+            // 1. Faz upload do arquivo de imagem do canhoto para o Supabase Storage 'canhotos'
+            val storageUploadRes = SupabaseClient.uploadCanhotoFileToStorage(
+                context = context,
+                token = activeToken,
+                romaneioId = item.romaneioId,
+                canhotoPathOrUri = item.canhotoFotoUri,
+                numeroNf = item.numeroNf ?: item.numeroRomaneio
+            )
+            val uploadedPath = storageUploadRes.getOrNull() ?: item.canhotoFotoUri
+
             val isoDate = isoDateFormat.format(Date(item.dataHoraEntrega))
             var rpcResult = SupabaseClient.callRpcConfirmarEntrega(
                 token = activeToken,
                 tipo = item.tipo,
                 romaneioId = item.romaneioId,
                 nfId = item.nfId,
-                canhotoPath = item.canhotoFotoUri,
+                canhotoPath = uploadedPath,
                 dataHoraEntregaIso = isoDate
             )
 
-                // Se falhou por sessão expirada ou não autenticado, renova a autenticação e tenta mais uma vez
-                if (rpcResult.isFailure) {
-                    val err = rpcResult.exceptionOrNull()?.message ?: ""
-                    if (err.contains("não autenticado", ignoreCase = true) || err.contains("401", ignoreCase = true)) {
-                        val u = lastUsedUsername ?: prefs.getString("last_username", null)
-                        val p = lastUsedPassword ?: prefs.getString("last_password", null)
-                        if (!u.isNullOrBlank() && !p.isNullOrBlank()) {
-                            val relogin = SupabaseClient.login(u, p)
-                            if (relogin.isSuccess) {
-                                val fresh = relogin.getOrThrow()
-                                _currentUserSession.value = fresh
-                                persistSession(fresh, u, p)
-                                rpcResult = SupabaseClient.callRpcConfirmarEntrega(
-                                    token = fresh.accessToken,
-                                    tipo = item.tipo,
-                                    romaneioId = item.romaneioId,
-                                    nfId = item.nfId,
-                                    canhotoPath = item.canhotoFotoUri,
-                                    dataHoraEntregaIso = isoDate
-                                )
-                            }
+            // Se falhou por sessão expirada ou não autenticado, renova a autenticação e tenta mais uma vez
+            if (rpcResult.isFailure) {
+                val err = rpcResult.exceptionOrNull()?.message ?: ""
+                if (err.contains("não autenticado", ignoreCase = true) || err.contains("401", ignoreCase = true)) {
+                    val u = lastUsedUsername ?: prefs.getString("last_username", null)
+                    val p = lastUsedPassword ?: prefs.getString("last_password", null)
+                    if (!u.isNullOrBlank() && !p.isNullOrBlank()) {
+                        val relogin = SupabaseClient.login(u, p)
+                        if (relogin.isSuccess) {
+                            val fresh = relogin.getOrThrow()
+                            _currentUserSession.value = fresh
+                            persistSession(fresh, u, p)
+
+                            val retryUpload = SupabaseClient.uploadCanhotoFileToStorage(
+                                context = context,
+                                token = fresh.accessToken,
+                                romaneioId = item.romaneioId,
+                                canhotoPathOrUri = item.canhotoFotoUri,
+                                numeroNf = item.numeroNf ?: item.numeroRomaneio
+                            )
+                            val retryPath = retryUpload.getOrNull() ?: uploadedPath
+
+                            rpcResult = SupabaseClient.callRpcConfirmarEntrega(
+                                token = fresh.accessToken,
+                                tipo = item.tipo,
+                                romaneioId = item.romaneioId,
+                                nfId = item.nfId,
+                                canhotoPath = retryPath,
+                                dataHoraEntregaIso = isoDate
+                            )
                         }
                     }
                 }
+            }
 
             if (rpcResult.isSuccess) {
                 Log.i("DeliveryRepository", "Confirmação da NF ${item.numeroNf ?: item.numeroRomaneio} sincronizada com sucesso no Supabase!")
